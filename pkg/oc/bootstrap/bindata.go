@@ -14747,6 +14747,30 @@ objects:
           action: keep
           regex: router;1936-tcp
 
+      # Scrape config for Service Catalog controllers
+      #
+      # Catalog runs on each master node and exposes a /metrics endpoint on :6443 that contains operational metrics for
+      # the controllers.
+      #
+      - job_name: 'catalog-controllers'
+
+        scheme: https
+        tls_config:
+          server_name: 'controller-manager.kube-service-catalog.svc'
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+        kubernetes_sd_configs:
+        - role: endpoints
+          namespaces:
+            names:
+            - kube-service-catalog
+
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_service_name]
+          action: keep
+          regex: controller-manager
+
       alerting:
         alertmanagers:
         - scheme: http
@@ -15195,7 +15219,7 @@ objects:
           args:
           - controller-manager
           - --secure-port
-          - "6444"
+          - "6443"
           - -v
           - "3"
           - --leader-election-namespace
@@ -15210,7 +15234,7 @@ objects:
           imagePullPolicy: IfNotPresent
           name: controller-manager
           ports:
-          - containerPort: 6444
+          - containerPort: 6443
             protocol: TCP
           resources: {}
           terminationMessagePath: /dev/termination-log
@@ -15226,13 +15250,28 @@ objects:
         - name: service-catalog-ssl
           secret:
             defaultMode: 420
-            secretName: apiserver-ssl
+            secretName: controllermanager-ssl
             items:
             - key: tls.crt
               path: apiserver.crt
             - key: tls.key
               path: apiserver.key
-
+- kind: Service
+  apiVersion: v1
+  metadata:
+    name: controller-manager
+    annotations:
+      service.alpha.openshift.io/serving-cert-secret-name: 'controllermanager-ssl'
+  spec:
+    type: ClusterIP
+    ports:
+    - name: secure
+      port: 6443
+      protocol: TCP
+      targetPort: 6443
+    selector:
+      app: controller-manager
+    sessionAffinity: None
 - apiVersion: apiregistration.k8s.io/v1beta1
   kind: APIService
   metadata:
